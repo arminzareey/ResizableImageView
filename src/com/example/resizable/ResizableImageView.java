@@ -46,7 +46,7 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
 
     private static final int MATRIX_VALUES_NUM = 9;
     private static final float DEFAULT_MIN_SCALE = 1.0f;
-    private static final float DEFAULT_MAX_SCALE = 10.0f;
+    private static final float DEFAULT_MAX_SCALE = 5.0f;
     private static final float MIN_POINTER_DISTANCE = 10f;
 
     private Matrix imageMatrix = new Matrix();
@@ -271,6 +271,16 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         this.imageMatrix.getValues(values);
 
         float scale = getInitialScale(this.bitmap);
+        if (scale > DEFAULT_MIN_SCALE) {
+            this.minScale = DEFAULT_MIN_SCALE;
+        } else {
+            this.minScale = scale;
+        }
+        Log.i(TAG, "min_scale="+this.minScale);
+
+        if (scale > DEFAULT_MAX_SCALE) {
+            this.maxScale = scale;
+        }
 
         setCenter(this.bitmap, scale, this.imageMatrix);
 
@@ -410,11 +420,9 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
 
         float ratioX = viewWidth / imgWidth;
         float ratioY = viewHeight / imgHeight;
+        Log.i(TAG, "ratioX="+ratioX+", ratioY="+ratioY);
 
-        if (ratioX >= 1 || ratioY >= 1) {
-            return Math.min(ratioX, ratioY);
-        }
-        return DEFAULT_MIN_SCALE;
+        return Math.min(ratioX, ratioY);
     }
 
     private float getMatrixScale(Matrix matrix) {
@@ -423,7 +431,7 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
 
         float currentScale = values[Matrix.MSCALE_X];
         if(currentScale == 0f) {
-            return DEFAULT_MIN_SCALE;
+            return this.minScale;
         }
         return currentScale;
     }
