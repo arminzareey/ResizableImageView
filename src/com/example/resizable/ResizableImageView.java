@@ -20,6 +20,15 @@ import android.view.View.OnTouchListener;
 /**
  * イメージの拡大縮小、移動ができるImageView拡張サンプル。
  *
+ * 初期表示時に画像をスクリーン中央に描画。
+ * ドラッグで画像を移動。
+ * ピンチイン/ピンチアウトで拡大縮小。
+ *
+ * TODO:
+ *   拡大縮小する際の基点を決める。
+ *     →画像中心部
+ *   Javadocを書く。
+ *
  * 以下のサイトを参考にしました。
  * @see http://tsukaayapontan.web.fc2.com/doc/customview/customview.html
  */
@@ -36,8 +45,8 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
     }
 
     private static final int MATRIX_VALUES_NUM = 9;
-    private static final float DEFAULT_MAX_SCALE = 5.0f;
-    private static final float DEFAULT_SCALE = 1.0f;
+    private static final float DEFAULT_MIN_SCALE = 1.0f;
+    private static final float DEFAULT_MAX_SCALE = 10.0f;
     private static final float MIN_POINTER_DISTANCE = 10f;
 
     private Matrix imageMatrix = new Matrix();
@@ -47,7 +56,7 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
     private PointF midPoint = new PointF();
 
     private float pointerDistance = 0.0f;
-    private float initialScale = DEFAULT_SCALE;
+    private float minScale = DEFAULT_MIN_SCALE;
     private float maxScale = DEFAULT_MAX_SCALE;
 
     private ACTION_MODE actionMode = ACTION_MODE.NONE;
@@ -89,7 +98,7 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
             this.bitmap.recycle();
         }
 
-        initialDraw();
+        initialImageDraw();
     }
 
     @Override
@@ -102,10 +111,6 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
             matrix = super.getImageMatrix();
         }
         matrix.getValues(values);
-
-//        setCenteringY(this.bitmap, values[Matrix.MSCALE_X], matrix);
-//        chkPositionX(this.bitmap, values[Matrix.MSCALE_X], matrix);
-//        chkPositionY(this.bitmap, values[Matrix.MSCALE_Y], matrix);
 
         super.setImageMatrix(matrix);
         super.onDraw(canvas);
@@ -205,10 +210,10 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         this.imageMatrix.set(this.savedImageMatrix);
 
         float currentScale = getMatrixScale(this.imageMatrix);
-        float scale = getScale(event);
+        float scale = getPointerScale(event);
 
         float tmpScale = scale * currentScale;
-        if (tmpScale < this.initialScale) {
+        if (tmpScale < this.minScale) {
             return false;
         }
         if (tmpScale > this.maxScale) {
@@ -221,8 +226,8 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         return true;
     }
 
-    public void setInitialScale(float scale) {
-        this.initialScale = scale;
+    public void setMinScale(float scale) {
+        this.minScale = scale;
     }
 
     public void setMaxScale(float scale) {
@@ -233,98 +238,79 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         this.loadType = LOAD_TYPE.FILE;
         this.filename = filename;
 
-        if (super.getWidth() == 0) {
-            return;
-        }
-
-        initialDraw();
+        initialImageDraw();
     }
 
     public void setImage(int resId) {
         this.loadType = LOAD_TYPE.RESOURCE;
         this.imageResourceId = resId;
 
-        if (super.getWidth() == 0) {
-            return;
-        }
-
-        initialDraw();
+        initialImageDraw();
     }
 
     public void setImage(Uri uri) {
         this.loadType = LOAD_TYPE.URI;
         this.imageUri = uri;
 
+        initialImageDraw();
+    }
+
+    private void initialImageDraw() {
         if (super.getWidth() == 0) {
             return;
         }
 
-        initialDraw();
-    }
-
-    protected Bitmap createBitmapFrimResource(int resId) {
-        int width = super.getWidth();
-        int height = super.getHeight();
-
-        Options options = new BitmapFactory.Options();
-        decodeResource(resId, options, true);
-
-        int imgWidth = options.outWidth;
-        int imgHeight = options.outHeight;
-
-        setSampleSize(imgWidth, imgHeight, width, height, options);
-
-        return decodeResource(resId, options, false);
-    }
-
-    protected Bitmap createBitmapFromUri(Uri uri) {
-        int width = super.getWidth();
-        int height = super.getHeight();
-
-        Options options = new BitmapFactory.Options();
-        decodeFile(uri.getPath(), options, true);
-
-        int imgWidth = options.outWidth;
-        int imgHeight = options.outHeight;
-
-        setSampleSize(imgWidth, imgHeight, width, height, options);
-
-        return decodeFile(uri.getPath(), options, false);
-    }
-
-    protected Bitmap createBitmap(String filename) {
-        int width = super.getWidth();
-        int height = super.getHeight();
-
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        decodeFile(filename, options, true);
-
-        int imgWidth = options.outWidth;
-        int imgHeight = options.outHeight;
-
-        setSampleSize(imgWidth, imgHeight, width, height, options);
-
-        return decodeFile(filename, options, false);
-    }
-
-    protected void setSampleSize(int width, int height, int maxWidth, int maxHeight, Options opts) {
-        if (chkSize(width, height, maxWidth, maxHeight)) {
-            int scale = getBmpImageScale(width, height, maxWidth, maxHeight);
-            opts.inSampleSize = scale;
+        if (this.bitmap != null) {
+            this.bitmap.recycle();
         }
+
+        this.bitmap = loadBitmap();
+        super.setImageBitmap(this.bitmap);
+
+        float[] values = new float[MATRIX_VALUES_NUM];
+        this.imageMatrix.getValues(values);
+
+        float scale = getInitialScale(this.bitmap);
+
+        setCenter(this.bitmap, scale, this.imageMatrix);
+
+        if (values[Matrix.MSCALE_X] == DEFAULT_MIN_SCALE) {
+            this.imageMatrix.postScale(scale, scale);
+            this.savedImageMatrix.set(this.imageMatrix);
+        }
+
+        super.setImageMatrix(this.imageMatrix);
     }
 
-    protected Bitmap decodeResource(int resId, Options opts, boolean decodeBounds) {
-        opts.inJustDecodeBounds = decodeBounds;
-        return BitmapFactory.decodeResource(getResources(), resId, opts);
+    private void setCenter(Bitmap bitmap, float scale, Matrix matrix) {
+        if (bitmap == null) {
+            return;
+        }
+
+        float viewWidth = super.getWidth();
+        float viewHeight = super.getHeight();
+        float imgWidth = bitmap.getWidth() * scale;
+        float imgHeight = bitmap.getHeight() * scale;
+
+        float[] values = new float[MATRIX_VALUES_NUM];
+        matrix.getValues(values);
+
+        float distX = viewWidth - imgWidth;
+        if (distX > 0) {
+            distX = distX / 2;
+        }
+
+        float distY = viewHeight - imgHeight;
+        if (distY > 0) {
+            distY = distY / 2;
+        }
+
+        values[Matrix.MTRANS_X] = distX;
+        values[Matrix.MTRANS_Y] = distY;
+        matrix.setValues(values);
     }
 
-    protected Bitmap decodeFile(String file, Options opts, boolean decodeBounds) {
-        opts.inJustDecodeBounds = decodeBounds;
-        return BitmapFactory.decodeFile(file, opts);
-    }
-
-    protected Bitmap loadBitmap() {
+    private Bitmap loadBitmap() {
         Bitmap bmp = null;
         switch (loadType) {
         case FILE:
@@ -343,28 +329,53 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         return bmp;
     }
 
-    private void initialDraw() {
-        if (this.bitmap != null) {
-            this.bitmap.recycle();
+    private Bitmap createBitmapFrimResource(int resId) {
+        Options options = new BitmapFactory.Options();
+        decodeResource(resId, options, true);
+
+//        setSampleSize(options);
+
+        return decodeResource(resId, options, false);
+    }
+
+    private Bitmap createBitmapFromUri(Uri uri) {
+        Options options = new BitmapFactory.Options();
+        decodeFile(uri.getPath(), options, true);
+
+//        setSampleSize(options);
+
+        return decodeFile(uri.getPath(), options, false);
+    }
+
+    private Bitmap createBitmap(String filename) {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        decodeFile(filename, options, true);
+
+//        setSampleSize(options);
+
+        return decodeFile(filename, options, false);
+    }
+
+    private Bitmap decodeResource(int resId, Options opts, boolean decodeBounds) {
+        opts.inJustDecodeBounds = decodeBounds;
+        return BitmapFactory.decodeResource(getResources(), resId, opts);
+    }
+
+    private Bitmap decodeFile(String file, Options opts, boolean decodeBounds) {
+        opts.inJustDecodeBounds = decodeBounds;
+        return BitmapFactory.decodeFile(file, opts);
+    }
+
+    private void setSampleSize(Options opts) {
+        int width = opts.outWidth;
+        int height = opts.outHeight;
+        int maxWidth = super.getWidth();
+        int maxHeight = super.getHeight();
+
+        if (chkSize(width, height, maxWidth, maxHeight)) {
+            int sample = getBmpImageSample(width, height, maxWidth, maxHeight);
+            opts.inSampleSize = sample;
         }
-
-        this.bitmap = loadBitmap();
-        super.setImageBitmap(this.bitmap);
-
-        float[] values = new float[MATRIX_VALUES_NUM];
-        this.imageMatrix.getValues(values);
-
-        this.initialScale = getInitialScale(this.bitmap);
-
-        setCenteringY(this.bitmap, this.initialScale, this.imageMatrix);
-//        setValueToImageMatrix(Matrix.MTRANS_X, 0f, this.imageMatrix);
-
-        if (values[Matrix.MSCALE_X] == DEFAULT_SCALE) {
-            this.imageMatrix.postScale(this.initialScale, this.initialScale);
-            this.savedImageMatrix.set(this.imageMatrix);
-        }
-
-        super.setImageMatrix(this.imageMatrix);
     }
 
     private boolean chkSize(int imageWidth, int imageHeight, int maxWidth, int maxHeight) {
@@ -376,97 +387,19 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         return isResize;
     }
 
-    private int getBmpImageScale(int imageWidth, int imageHeight, int maxWidth, int maxHeight) {
-        int retScale = 1;
+    private int getBmpImageSample(int imageWidth, int imageHeight, int maxWidth, int maxHeight) {
+        int retSample = 1;
 
+        // 画面比を算出
         float scaleX = (imageWidth / maxWidth) + 1.0f;
         float scaleY = (imageHeight / maxHeight) + 1.0f;
-
-        retScale = Math.max((int)scaleX, (int)scaleY);
-
-        return retScale;
-    }
-
-    private void setCenteringY(Bitmap bitmap, float scale, Matrix matrix) {
-        if (bitmap == null) {
-            return;
-        }
-
-        float viewHeight = (float) super.getHeight();
-        float imageHeight = (float) bitmap.getHeight();
-        imageHeight *= scale;
-
-        float[] values = new float[MATRIX_VALUES_NUM];
-        matrix.getValues(values);
-
-        float cal = viewHeight - imageHeight;
-        if (cal > 0) {
-            cal /= 2.0f;
-            setValueToImageMatrix(Matrix.MTRANS_Y, cal, matrix);
-        }
-    }
-
-    private void chkPositionX(Bitmap bitmap, float scale, Matrix matrix) {
-        if (bitmap == null) {
-            return;
-        }
-
-        float viewWidth = (float) super.getWidth();
-        float imageWidth = (float) bitmap.getWidth();
-        imageWidth *= scale;
-
-        float[] values = new float[MATRIX_VALUES_NUM];
-        matrix.getValues(values);
-
-        float currentX = values[Matrix.MTRANS_X];
-
-        if (currentX > 0) {
-            setValueToImageMatrix(Matrix.MTRANS_X, 0f, matrix);
-        } else if ((imageWidth + currentX) < viewWidth) {
-            float cal = values[Matrix.MTRANS_X] + (viewWidth - (imageWidth + currentX));
-            setValueToImageMatrix(Matrix.MTRANS_X, cal, matrix);
-        }
-    }
-
-    private void chkPositionY(Bitmap bitmap, float scale, Matrix matrix) {
-        if (bitmap == null) {
-            return;
-        }
-
-        float viewHeight = (float) super.getHeight();
-        float imageHeight = (float) bitmap.getHeight();
-        imageHeight *= scale;
-
-        float[] values = new float[MATRIX_VALUES_NUM];
-        matrix.getValues(values);
-
-        float currentY = values[Matrix.MTRANS_Y];
-
-        if (viewHeight > imageHeight) {
-            return;
-        }
-
-        if (currentY > 0) {
-            // 画面左に余白あり
-            setValueToImageMatrix(Matrix.MTRANS_Y, 0f, matrix);
-        } else if ((imageHeight + currentY) < viewHeight) {
-            // 画面右に余白あり
-            float cal = values[Matrix.MTRANS_Y] + (viewHeight - (imageHeight + currentY));
-            setValueToImageMatrix(Matrix.MTRANS_Y, cal, matrix);
-        }
-    }
-
-    private void setValueToImageMatrix(int index, float value, Matrix matrix) {
-        float[] values = new float[MATRIX_VALUES_NUM];
-        matrix.getValues(values);
-
-        values[index] = value;
-        matrix.setValues(values);
+        retSample = Math.max((int)scaleX, (int)scaleY);
+        return retSample;
     }
 
     private float getInitialScale(Bitmap bitmap) {
         if (bitmap == null) {
-            return DEFAULT_SCALE;
+            return DEFAULT_MIN_SCALE;
         }
 
         float viewWidth = super.getWidth();
@@ -475,13 +408,13 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         float imgWidth = bitmap.getWidth();
         float imgHeight = bitmap.getHeight();
 
-        float scaleX = viewWidth / imgWidth;
-        float scaleY = viewHeight / imgHeight;
+        float ratioX = viewWidth / imgWidth;
+        float ratioY = viewHeight / imgHeight;
 
-        if (scaleX > 1 || scaleY > 1) {
-            return DEFAULT_SCALE;
+        if (ratioX >= 1 || ratioY >= 1) {
+            return Math.min(ratioX, ratioY);
         }
-        return Math.min(scaleX, scaleY);
+        return DEFAULT_MIN_SCALE;
     }
 
     private float getMatrixScale(Matrix matrix) {
@@ -490,12 +423,12 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
 
         float currentScale = values[Matrix.MSCALE_X];
         if(currentScale == 0f) {
-            return 1f;
+            return DEFAULT_MIN_SCALE;
         }
         return currentScale;
     }
 
-    private float getScale(MotionEvent event) {
+    private float getPointerScale(MotionEvent event) {
         float distance = getPointerDistance(event);
         return distance / this.pointerDistance;
     }
@@ -506,6 +439,5 @@ public class ResizableImageView extends ImageView implements OnTouchListener {
         float y = event.getY(0) - event.getY(1);
         return FloatMath.sqrt(x*x+y*y);
     }
-
 
 }
