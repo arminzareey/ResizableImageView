@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.app.Activity;
 import android.view.Menu;
+import android.widget.TextView;
 
 public class MainActivity extends Activity {
 
@@ -15,10 +16,14 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        ResizableImageView v = (ResizableImageView) findViewById(R.id.scalableImageView1);
+        TextView tv = (TextView) findViewById(R.id.textView1);
+        tv.setBackgroundColor(0x66ffffff);
+
+        ResizableImageView rv = (ResizableImageView) findViewById(R.id.scalableImageView1);
 
         File sdcard = Environment.getExternalStorageDirectory();
-        v.setImage(Uri.fromFile(new File(sdcard, "chihya-gyu.png")));
+        rv.setImageSource(Uri.fromFile(new File(sdcard, "chihya-gyu.png")));
+        rv.setTextView(tv);
     }
 
     @Override
